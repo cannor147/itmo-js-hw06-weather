@@ -14,7 +14,7 @@ const weather = require('../src/weather');
 const nockAPIRequests = (geoids, { presetName = 'default' } = {}) =>
   nock('https://api.weather.yandex.ru')
     .persist()
-    .get('/v1/forecast/')
+    .get('/v1/forecast')
     .query(q => geoids.includes(parseInt(q.geoid)))
     .reply(200, uri => {
       return require(`./__fixtures__/${presetName}/${qs.parse(uri).geoid}.json`);

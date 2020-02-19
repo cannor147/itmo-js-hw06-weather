@@ -2,6 +2,15 @@
 
 global.fetch = require('node-fetch');
 
+const ENDPOINT_PREFIX = `https://api.weather.yandex.ru/v1/forecast?hours=false&limit=7&geoid=`;
+
+const TRANSLATE_MAP = new Map();
+TRANSLATE_MAP.set("Can't generate a trip.", 'Не могу построить маршрут!');
+TRANSLATE_MAP.set(
+  'Failed to get weather from Yandex.Weather: ',
+  'Ошибка при получении данных о погоде из Яндекс.Погода: '
+);
+
 /**
  * @typedef {object} TripItem Город, который является частью маршрута.
  * @property {number} geoid Идентификатор города
@@ -9,6 +18,25 @@ global.fetch = require('node-fetch');
  */
 
 class TripBuilder {
+  constructor(geoids) {
+    this.geoids = geoids;
+    this.conditions = [];
+    this.maxDays = Infinity;
+  }
+
+  _getForecast(geoid) {
+    return global
+      .fetch(ENDPOINT_PREFIX + geoid)
+      .then(response => response.json())
+      .catch(error => {
+        throw new Error(TRANSLATE_MAP.get('Failed to get weather from Yandex.Weather: ') + error);
+      })
+      .then(json => ({
+        geoid: json['geo_object']['locality']['id'],
+        forecast: json['forecasts'].map(day => day['parts']['day_short']['condition'])
+      }));
+  }
+
   /**
    * Метод, добавляющий условие наличия в маршруте
    * указанного количества солнечных дней
@@ -16,10 +44,14 @@ class TripBuilder {
    * можно приравнять следующие значения `condition`:
    * * `clear`;
    * * `partly-cloudy`.
-   * @param {number} daysCount количество дней
+   * @param {number} days количество дней
    * @returns {object} Объект планировщика маршрута
    */
-  sunny(daysCount) {
+  sunny(days) {
+    for (let i = 0; i < days; i++) {
+      this.conditions.push(['clear', 'partly-cloudy']);
+    }
+
     return this;
   }
 
@@ -30,19 +62,25 @@ class TripBuilder {
    * можно приравнять следующие значения `condition`:
    * * `cloudy`;
    * * `overcast`.
-   * @param {number} daysCount количество дней
+   * @param {number} days количество дней
    * @returns {object} Объект планировщика маршрута
    */
-  cloudy(daysCount) {
+  cloudy(days) {
+    for (let i = 0; i < days; i++) {
+      this.conditions.push(['cloudy', 'overcast']);
+    }
+
     return this;
   }
 
   /**
    * Метод, добавляющий условие максимального количества дней.
-   * @param {number} daysCount количество дней
+   * @param {number} days количество дней
    * @returns {object} Объект планировщика маршрута
    */
-  max(daysCount) {
+  max(days) {
+    this.maxDays = days;
+
     return this;
   }
 
@@ -51,7 +89,40 @@ class TripBuilder {
    * @returns {Promise<TripItem[]>} Список городов маршрута
    */
   build() {
-    return this;
+    return Promise.all(this.geoids.map(this._getForecast)).then(cities => {
+      const trip = [];
+      const geoidToDayMap = new Map();
+
+      const generateTrip = () => {
+        const today = trip.length;
+
+        for (const city of cities) {
+          const cityDays = geoidToDayMap.has(city.geoid) ? geoidToDayMap.get(city.geoid) : 0;
+          const cityCurrent = trip.length > 0 && city.geoid === trip[trip.length - 1];
+          const cityGoodForecast = this.conditions[today].includes(city.forecast[today]);
+
+          if (cityGoodForecast && cityDays < this.maxDays && (cityDays === 0 || cityCurrent)) {
+            geoidToDayMap.set(city.geoid, cityDays + 1);
+            trip.push({ geoid: city.geoid, day: today + 1 });
+
+            if (trip.length === this.conditions.length || generateTrip()) {
+              return true;
+            }
+
+            geoidToDayMap.set(city.geoid, cityDays);
+            trip.pop();
+          }
+        }
+
+        return false;
+      };
+
+      if (generateTrip()) {
+        return trip;
+      }
+
+      throw new Error(TRANSLATE_MAP.get("Can't generate a trip."));
+    });
   }
 }
 
