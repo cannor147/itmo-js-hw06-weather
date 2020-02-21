@@ -19,9 +19,9 @@ TRANSLATE_MAP.set(
 
 class TripBuilder {
   constructor(geoids) {
-    this.geoids = geoids;
-    this.conditions = [];
-    this.maxDays = Infinity;
+    this._geoids = geoids;
+    this._conditions = [];
+    this._maxDays = Infinity;
   }
 
   _getForecast(geoid) {
@@ -37,6 +37,12 @@ class TripBuilder {
       }));
   }
 
+  _addCondition(condition, times) {
+    for (let i = 0; i < times; i++) {
+      this._conditions.push(condition);
+    }
+  }
+
   /**
    * Метод, добавляющий условие наличия в маршруте
    * указанного количества солнечных дней
@@ -48,9 +54,7 @@ class TripBuilder {
    * @returns {object} Объект планировщика маршрута
    */
   sunny(days) {
-    for (let i = 0; i < days; i++) {
-      this.conditions.push(['clear', 'partly-cloudy']);
-    }
+    this._addCondition(['clear', 'partly-cloudy'], days);
 
     return this;
   }
@@ -66,9 +70,7 @@ class TripBuilder {
    * @returns {object} Объект планировщика маршрута
    */
   cloudy(days) {
-    for (let i = 0; i < days; i++) {
-      this.conditions.push(['cloudy', 'overcast']);
-    }
+    this._addCondition(['cloudy', 'overcast'], days);
 
     return this;
   }
@@ -79,7 +81,7 @@ class TripBuilder {
    * @returns {object} Объект планировщика маршрута
    */
   max(days) {
-    this.maxDays = days;
+    this._maxDays = days;
 
     return this;
   }
@@ -89,7 +91,7 @@ class TripBuilder {
    * @returns {Promise<TripItem[]>} Список городов маршрута
    */
   build() {
-    return Promise.all(this.geoids.map(this._getForecast)).then(cities => {
+    return Promise.all(this._geoids.map(this._getForecast)).then(cities => {
       const trip = [];
       const geoidToDayMap = new Map();
 
@@ -99,13 +101,13 @@ class TripBuilder {
         for (const city of cities) {
           const cityDays = geoidToDayMap.has(city.geoid) ? geoidToDayMap.get(city.geoid) : 0;
           const cityCurrent = trip.length > 0 && city.geoid === trip[trip.length - 1];
-          const cityGoodForecast = this.conditions[today].includes(city.forecast[today]);
+          const cityGoodForecast = this._conditions[today].includes(city.forecast[today]);
 
-          if (cityGoodForecast && cityDays < this.maxDays && (cityDays === 0 || cityCurrent)) {
+          if (cityGoodForecast && cityDays < this._maxDays && (cityDays === 0 || cityCurrent)) {
             geoidToDayMap.set(city.geoid, cityDays + 1);
             trip.push({ geoid: city.geoid, day: today + 1 });
 
-            if (trip.length === this.conditions.length || generateTrip()) {
+            if (trip.length === this._conditions.length || generateTrip()) {
               return true;
             }
 
